@@ -1,21 +1,28 @@
 open Cmdliner
-open Printf
 open Char
 open String
-open Str
 
 (* Trim num fields from the left of the string; helper function *)
 let rec ltrim haystack needle num =
   if num = 0 then haystack else
-    let occurence = index haystack needle in
-    ltrim (sub haystack (occurence + 1)
-      ((length haystack) - occurence - 1)) needle (pred num)
+    try
+      let occurence = index haystack needle in
+      ltrim (sub haystack (succ occurence)
+        ((length haystack) - occurence - 1)) needle (pred num)
+    with
+    | Not_found -> ""
 
-(* Find the position into the string of the separator for the num-th field *)
+(*
+ * Find the position into the string of the separator for the num-th field.
+ * Returns -1 if not found.
+ *)
 let rec find_nth_occurence haystack needle num pos =
-  if num = 0 then pos - 1 else
-    find_nth_occurence haystack needle (pred num)
-      (succ (index_from haystack pos needle))
+  if num = 0 then pred pos else
+    try
+      let occurence = index_from haystack pos needle in
+      find_nth_occurence haystack needle (pred num) (succ occurence)
+    with
+    | Not_found -> -1
 
 (* Return the num-th field, separated by needle, from haystack *)
 let get_field_from_string haystack needle num =
@@ -29,7 +36,11 @@ let get_field_from_string haystack needle num =
 (* Return a range of fields, separated by needle, from within haystack *)
 let rec get_fields_from_string haystack needle l r =
   let ltrimmed = ltrim haystack needle (l - 1) in
-  sub ltrimmed 0 (find_nth_occurence haystack needle (r - l + 1) 0)
+  let occurence = find_nth_occurence haystack needle (r - l + 1) 0 in
+  if occurence = -1 then
+    ltrimmed
+  else
+    sub ltrimmed 0 occurence
 
 (*
  * Return a tuple of integer options, denoting the "left" and "right" boundary
@@ -64,8 +75,12 @@ let cut_from_str haystack needle tuple =
                          (get_field_from_string haystack needle l)
                        else
                          (get_fields_from_string haystack needle l r)
-   | None, Some r -> "implement me"
-   | Some l, None -> "implement me"
+   (*
+    * The following is not implemented because cmdliner can't handle
+    * options in the form of '-f -3'.
+    *)
+   | None, Some r -> "Not implemented"
+   | Some l, None -> ltrim haystack needle (pred l)
    | _ -> ""
 
 (* Return a comma-separated list of processed field strings *)
@@ -74,18 +89,22 @@ let assemble_field_strs input needle fields =
 
 let main delim fields =
   let fields = split_args fields in
-  let str = assemble_field_strs (read_line ()) delim fields in
-  printf "%s\n" str
+  try
+    while true do
+      Printf.printf "%s\n" (assemble_field_strs (input_line stdin) delim fields)
+    done
+  with
+  | End_of_file -> ()
 
 let delim =
   let doc = "Delimiter" in
-  Arg.(value & opt char 'a' & info ["d"] ~docv:"DELIM" ~doc)
+  Arg.(required & opt (some char) None & info ["d"] ~docv:"DELIM" ~doc)
 let field =
   let doc = "Field specification" in
-  Arg.(value & opt string "1" & info ["f"] ~docv:"FIELD" ~doc)
+  Arg.(required & opt (some string) None & info ["f"] ~docv:"FIELD" ~doc)
 
 let cmd =
   let doc = "cut clone in ocaml" in
   Term.(pure main $ delim $ field),
-  Term.info "cut" ~version:"1.0" ~doc
+  Term.info "cut" ~doc
 let () = match Term.eval cmd with `Error _ -> exit 1 | _ -> exit 0
